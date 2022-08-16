@@ -18,6 +18,9 @@ import seaborn as sns
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import accuracy_score
+from scipy import stats
+from sklearn.preprocessing import StandardScaler
+
 class WalkPredictor():
     def __init__(self):
         print('initialize WalkPredictor')
@@ -103,13 +106,26 @@ class WalkPredictor():
         self.y = DataFrame(self.odometry.labels.values, columns=['labels'])
         self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(self.x,self.y, train_size=0.8)
     def pre_process(self):
+        # #Scale data 
+        scaler = StandardScaler()
+        scaled_data = scaler.fit(self.x_train).transform(self.x_train)
+        self.x_train = DataFrame(scaled_data, columns = self.x_train.columns)
+        scaled_data_test = scaler.fit(self.x_test).transform(self.x_test)
+        self.x_test = DataFrame(scaled_data_test, columns = self.x_test.columns)
+        #Log Transform - Should I transform or scale first?
+        # for col_name in self.x_train.columns:
+        #     self.x_train[col_name] = np.log10(self.x_train[col_name])
+        #     self.x_test[col_name] = np.log10(self.x_test[col_name])
         # Find features with correlation greater than 0.90
         corr_matrix = np.abs(self.x_train.astype(float).corr())
         upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(np.bool))
-        to_drop = [column for column in upper.columns if any(upper[column] >= 0.88)]
+        to_drop = [column for column in upper.columns if any(upper[column] >= 0.75)]
         self.x_train = self.x_train.drop(columns=to_drop)
         self.x_test = self.x_test.drop(columns=to_drop)
-        print(f'features to drop: {to_drop}')
+        print(f'features to drop (coef > 0.75): {to_drop}')
+        #Probability plots - normal distribution
+        for col_name in self.x_train.columns:
+            self.prob_plots(col_name)
         #plot heat map
         top_corr_features = corr_matrix.index
         plt.figure(figsize=(20,20))
@@ -117,7 +133,17 @@ class WalkPredictor():
         g=sns.heatmap(corr_matrix[top_corr_features],annot=True,cmap="RdYlGn")
         plt.savefig('correlations.png')
         plt.close()
-        pass
+
+    def prob_plots(self,col_name):
+        fig = plt.figure()
+        ax1 = fig.add_subplot(111)
+        stats.probplot(self.x_train[col_name], dist=stats.norm, plot=ax1)
+        title = f'probPlot of training data against normal distribution, feature: {col_name}'  
+        ax1.set_title(title,fontsize=10)
+        save_name = 'probplot_' + col_name + '.png'
+        plt.tight_layout()
+        plt.savefig(os.path.join(os.getcwd(), 'prob_plots',save_name), dpi=200)
+
     def learn(self):
         Gradclass = GradientBoostingClassifier()
         Grad_perm = {
@@ -134,9 +160,8 @@ class WalkPredictor():
         print('GradientBoostingClassifier - best params: ',search_Grad.best_params_)
         Gradclass_err = accuracy_score(self.y_test, search_Grad.predict(self.x_test))
         print('GradientBoostingClassifier accuracy',Gradclass_err)
-        pass
-    def prob_plots(self,col_name):
-        pass
+        print('check the amount of Walks (1) and Non-Walks (0) training  data: ',self.y_train.value_counts())
+        print('check the amount of Walks (1) and Non-Walks (0) test  data: ',self.y_test.value_counts())
     def feature_importances(self,model):
         pass
 
