@@ -2,7 +2,6 @@
 
 machine learning that predicts walking and non-walking segments within timeseries data
 
-```
 ### Current prediction accuracies
 ```bash
 features to drop (coef > 0.75): ['position_z', 'angular_acceleration_y', 'orientation_y']
