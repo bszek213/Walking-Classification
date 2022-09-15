@@ -2,15 +2,6 @@
 
 machine learning that predicts walking and non-walking segments within timeseries data
 
-## Installation
-```bash
-conda env create -f cfb_env.yaml
-```
-
-## Usage
-
-```python
-python cfb_ml.py
 ```
 ### Current prediction accuracies
 ```bash
