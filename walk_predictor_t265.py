@@ -15,12 +15,18 @@ import numpy as np
 from pandas import DataFrame
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier,RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import accuracy_score
 from scipy import stats
 from sklearn.preprocessing import StandardScaler
-
+"""
+TODO: Create method that can append multiple takes together into one massive 
+timeseries.
+"""
 class WalkPredictor():
     def __init__(self):
         print('initialize WalkPredictor')
@@ -88,7 +94,6 @@ class WalkPredictor():
                      'linear_acceleration','angular_acceleration','orientation']
         self.y = self.odometry.labels
         self.x = self.odometry[variables]
-        #TODO: these are all matrices wtih x, y, and z axes. change this to a dataframe with each feature being an axis
         self.x = DataFrame(list(zip(self.x.position[:,0].values,self.x.position[:,1].values,self.x.position[:,2].values,
                                 self.x.linear_velocity[:,0].values,self.x.linear_velocity[:,1].values,self.x.linear_velocity[:,2].values,
                                 self.x.angular_velocity[:,0].values,self.x.angular_velocity[:,1].values,self.x.angular_velocity[:,2].values,
@@ -122,6 +127,7 @@ class WalkPredictor():
         to_drop = [column for column in upper.columns if any(upper[column] >= 0.75)]
         self.x_train = self.x_train.drop(columns=to_drop)
         self.x_test = self.x_test.drop(columns=to_drop)
+        self.drop_cols = to_drop
         print(f'features to drop (coef > 0.75): {to_drop}')
         #Probability plots - normal distribution
         for col_name in self.x_train.columns:
@@ -145,23 +151,71 @@ class WalkPredictor():
         plt.savefig(os.path.join(os.getcwd(), 'prob_plots',save_name), dpi=200)
 
     def learn(self):
-        Gradclass = GradientBoostingClassifier()
-        Grad_perm = {
-            'loss' : ['log_loss', 'exponential'],
-            'learning_rate': np.arange(0.1, .5, 0.1, dtype=float),
-            'n_estimators': range(100,500,100),
-            'criterion' : ['friedman_mse', 'squared_error'],
-            'max_depth': np.arange(1, 5, 1, dtype=int),
-            'max_features' : [1, 'sqrt', 'log2']
-            }
-        clf = GridSearchCV(Gradclass, Grad_perm, scoring=['accuracy'],
-                            refit='accuracy', verbose=4, n_jobs=-1)
-        search_Grad = clf.fit(self.x_train,self.y_train)
-        print('GradientBoostingClassifier - best params: ',search_Grad.best_params_)
-        Gradclass_err = accuracy_score(self.y_test, search_Grad.predict(self.x_test))
-        print('GradientBoostingClassifier accuracy',Gradclass_err)
+        """
+        check the base case classifiers and then tune the one with the highest accuracy
+        TODO: tune the model with the highest accuracy
+        """
+        #check the base case
+        print('training base casee for all models')
+        kneighbor = KNeighborsClassifier().fit(self.x_train,self.y_train)
+        log_regress = LogisticRegression().fit(self.x_train,self.y_train)
+        grad_class = GradientBoostingClassifier().fit(self.x_train,self.y_train)
+        mlpClass = MLPClassifier().fit(self.x_train,self.y_train)
+        randFor = RandomForestClassifier().fit(self.x_train,self.y_train)
+        print('kneighbor acc: ',accuracy_score(self.y_test, kneighbor.predict(self.x_test)))
+        print('logisticRegression acc: ',accuracy_score(self.y_test, log_regress.predict(self.x_test)))
+        print('gradientBoostingClassifier acc: ',accuracy_score(self.y_test, grad_class.predict(self.x_test)))
+        print('mlpClassifier acc: ',accuracy_score(self.y_test, mlpClass.predict(self.x_test)))
+        print('randomForestClassifier acc: ',accuracy_score(self.y_test, randFor.predict(self.x_test)))
+        dict_models = {'kneighbor': accuracy_score(self.y_test, kneighbor.predict(self.x_test)),
+                       'logisticRegression': accuracy_score(self.y_test, log_regress.predict(self.x_test)),
+                       'gradientBoostingClassifier': accuracy_score(self.y_test, grad_class.predict(self.x_test)),
+                       'mlpClassifier': accuracy_score(self.y_test, mlpClass.predict(self.x_test)),
+                       'randomForestClassifier': accuracy_score(self.y_test, randFor.predict(self.x_test)),
+                       }
+        models_highest = max(dict_models, key=dict_models.get)
+        print(f'Model with the highest accuracy: {models_highest}')
+        if models_highest == 'kneighbor':
+            self.model = kneighbor
+        elif models_highest == 'logisticRegression':
+            self.model = log_regress
+        elif models_highest == 'gradientBoostingClassifier':
+            self.model = grad_class
+        elif models_highest == 'mlpClassifier':
+            self.model = mlpClass
+        elif models_highest == 'randomForestClassifier':
+            self.model = randFor
+        # Gradclass = GradientBoostingClassifier()
+        # Grad_perm = {
+        #     'loss' : ['log_loss', 'exponential'],
+        #     'learning_rate': np.arange(0.1, .5, 0.1, dtype=float),
+        #     'n_estimators': range(100,500,100),
+        #     'criterion' : ['friedman_mse', 'squared_error'],
+        #     'max_depth': np.arange(1, 5, 1, dtype=int),
+        #     'max_features' : [1, 'sqrt', 'log2']
+        #     }
+        # clf = GridSearchCV(Gradclass, Grad_perm, scoring=['accuracy'],
+        #                     refit='accuracy', verbose=4, n_jobs=-1)
+        # search_Grad = clf.fit(self.x_train,self.y_train)
+        # print('GradientBoostingClassifier - best params: ',search_Grad.best_params_)
+        # Gradclass_err = accuracy_score(self.y_test, search_Grad.predict(self.x_test))
+        # print('GradientBoostingClassifier accuracy',Gradclass_err)
         print('check the amount of Walks (1) and Non-Walks (0) training  data: ',self.y_train.value_counts())
         print('check the amount of Walks (1) and Non-Walks (0) test  data: ',self.y_test.value_counts())
+    def predict_data(self):
+        """
+        Predict any input data.
+        possibly graph the data as well to see what is labeled correctly
+        """
+        temp_df = self.x.drop(columns=self.drop_cols)
+        temp_df['labels'] = np.zeros(len(temp_df))
+        for i in range(len(temp_df)):
+            temp_df['labels'].iloc[i] = self.model.predict(temp_df.iloc[i].to_numpy().reshape(-1, 1))
+            if temp_df['labels'].iloc[i] == 0:
+                plt.plot(temp_df.index[i],temp_df['angular_velocity_x'].iloc[i],linestyle='--', marker='o', color='r')
+            elif temp_df['labels'].iloc[i] == 1:
+                plt.plot(temp_df.index[i],temp_df['angular_velocity_x'].iloc[i],linestyle='--', marker='o', color='g')
+        plt.show()
     def feature_importances(self,model):
         pass
 
@@ -172,5 +226,6 @@ def main():
     walk.split()
     walk.pre_process()
     walk.learn()
+    walk.predict_data()
 if __name__=='__main__':
     main()
