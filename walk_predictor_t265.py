@@ -17,16 +17,60 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import GradientBoostingClassifier,RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.linear_model import LogisticRegression
+# from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import GridSearchCV
+# from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import accuracy_score
 from scipy import stats
-from sklearn.preprocessing import StandardScaler
+# from sklearn.preprocessing import StandardScaler
+# from tqdm import tqdm
+# import multiprocessing as mp
+from scipy.signal import savgol_filter
+from yaml import dump, safe_load
 """
 TODO: Create method that can append multiple takes together into one massive 
 timeseries.
 """
+def test_data(folder='/media/brianszekely/TOSHIBA EXT/UNR/2021_07_13_15_27_51/'):
+    isdir = os.path.isdir(folder) 
+    if isdir == False:
+        print('Folder does not exist. Check the path')
+    elif isdir == True:
+        return pri.load_dataset(folder,odometry='recording',cache=False)
+
+def create_df(xarr):
+    odometry = xarr.drop_vars('confidence')
+    variables = ['position','linear_velocity','angular_velocity',
+                 'linear_acceleration','angular_acceleration','orientation']
+    x = odometry[variables]
+    df_x = DataFrame(list(zip(x.position[:,0].values,
+                              x.position[:,1].values,
+                              x.position[:,2].values,
+                            x.linear_velocity[:,0].values,
+                            x.linear_velocity[:,1].values,
+                            x.linear_velocity[:,2].values,
+                            x.angular_velocity[:,0].values,
+                            x.angular_velocity[:,1].values,
+                            x.angular_velocity[:,2].values,
+                            x.linear_acceleration[:,0].values,
+                            x.linear_acceleration[:,1].values,
+                            x.linear_acceleration[:,2].values,
+                            x.angular_acceleration[:,0].values,
+                            x.angular_acceleration[:,1].values,
+                            x.angular_acceleration[:,2].values,
+                            x.orientation[:,0].values,
+                            x.orientation[:,1].values,
+                            x.orientation[:,2].values,
+                            x.orientation[:,3].values
+                            )),
+                columns =['position_x','position_y','position_z',
+                          'linear_velocity_x','linear_velocity_y','linear_velocity_z',
+                          'angular_velocity_x','angular_velocity_y','angular_velocity_z',
+                          'linear_acceleration_x','linear_acceleration_y','linear_acceleration_z',
+                          'angular_acceleration_x','angular_acceleration_y','angular_acceleration_z',
+                          'orientation_w','orientation_x','orientation_y', 'orientation_z'
+                          ])
+    return df_x
 class WalkPredictor():
     def __init__(self):
         print('initialize WalkPredictor')
@@ -39,40 +83,73 @@ class WalkPredictor():
             self.folder = folder
             self.odometry = pri.load_dataset(folder,odometry='recording',cache=False)
             self.accel = pri.load_dataset(folder,accel='recording',cache=False)
+    def yaml_times(self):
+        yaml_file = os.path.join(self.folder,'walk_labels.yaml')
+        if not os.path.exists(yaml_file):
+            with open(yaml_file, mode='w') as fid:
+                dump(self.times, fid)
+    def filter_data(self):
+        #Filter acceleration and see if that helps
+        filter_val = 51
+        self.odometry.angular_acceleration[:, 0] = savgol_filter(self.odometry.angular_acceleration[:, 0], filter_val, 2)
+        self.odometry.angular_acceleration[:, 1] = savgol_filter(self.odometry.angular_acceleration[:, 1], filter_val, 2)
+        self.odometry.angular_acceleration[:, 2] = savgol_filter(self.odometry.angular_acceleration[:, 2], filter_val, 2)
+        self.odometry.linear_acceleration[:, 0] = savgol_filter(self.odometry.linear_acceleration[:, 0], filter_val, 2)
+        self.odometry.linear_acceleration[:, 1] = savgol_filter(self.odometry.linear_acceleration[:, 1], filter_val, 2)
+        self.odometry.linear_acceleration[:, 2] = savgol_filter(self.odometry.linear_acceleration[:, 2], filter_val, 2)
+        #Filter velocity and see if that helps
+        self.odometry.angular_velocity[:, 0] = savgol_filter(self.odometry.angular_velocity[:, 0], filter_val, 2)
+        self.odometry.angular_velocity[:, 1] = savgol_filter(self.odometry.angular_velocity[:, 1], filter_val, 2)
+        self.odometry.angular_velocity[:, 2] = savgol_filter(self.odometry.angular_velocity[:, 2], filter_val, 2)
+        self.odometry.linear_velocity[:, 0] = savgol_filter(self.odometry.linear_velocity[:, 0], filter_val, 2)
+        self.odometry.linear_velocity[:, 1] = savgol_filter(self.odometry.linear_velocity[:, 1], filter_val, 2)
+        self.odometry.linear_velocity[:, 2] = savgol_filter(self.odometry.linear_velocity[:, 2], filter_val, 2)
+        #Filter orientation and see if that helps
+        self.odometry.orientation[:, 0] = savgol_filter(self.odometry.orientation[:, 0], filter_val, 2)
+        self.odometry.orientation[:, 1] = savgol_filter(self.odometry.orientation[:, 1], filter_val, 2)
+        self.odometry.orientation[:, 2] = savgol_filter(self.odometry.orientation[:, 2], filter_val, 2)
+        self.odometry.orientation[:, 3] = savgol_filter(self.odometry.orientation[:, 3], filter_val, 2)
+
     def encode_binary(self):
         #create an array of zeros for the label data 
         zero_arr = np.zeros(len(self.odometry.orientation.values),dtype = int)
         self.odometry['labels'] = (['time'],  zero_arr)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=self.odometry.time.values,
-            y=self.odometry.angular_velocity[:, 0],
-            name="pitch"       # this sets its legend entry
-            ))
-        fig.update_layout(
-            title="Angular velocity odometry",
-            xaxis_title="Time stamps (datetime)",
-            yaxis_title="Angular Velocity (radians/second)",
-            )
-        fig.show()
-        done = False
-        times = []
-        while not done:
-            pitch_start = input('Pitch Timestamp Start (HH:mm:ss format): ')
-            pitch_end = input('Pitch Timestamp End (HH:mm:ss format): ')
-            df_time = Series(self.odometry.time[0].values)
-            pitch_start = datetime.combine(df_time.dt.date.values[0],
-                                            datetime.strptime(pitch_start, '%H:%M:%S').time())
-            pitch_end = datetime.combine(df_time.dt.date.values[0],
-                                            datetime.strptime(pitch_end, '%H:%M:%S').time())
-            tmp = {'walking':
-                {'start': pitch_start,
-                    'end': pitch_end,
-                    }}
-            times.append(tmp)
-            next_calibration = input('Continue for more labeling? (y/n) ')
-            done = next_calibration != 'y'
-        for num in times:
+        if os.path.exists(os.path.join(self.folder,'walk_labels.yaml')) == False:
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=self.odometry.time.values,
+                y=self.odometry.angular_velocity[:, 0],
+                name="pitch"       # this sets its legend entry
+                ))
+            fig.update_layout(
+                title="Angular velocity odometry",
+                xaxis_title="Time stamps (datetime)",
+                yaxis_title="Angular Velocity (radians/second)",
+                )
+            fig.show()
+            done = False
+            times = []
+            while not done:
+                pitch_start = input('Pitch Timestamp Start (HH:mm:ss format): ')
+                pitch_end = input('Pitch Timestamp End (HH:mm:ss format): ')
+                df_time = Series(self.odometry.time[0].values)
+                pitch_start = datetime.combine(df_time.dt.date.values[0],
+                                                datetime.strptime(pitch_start, '%H:%M:%S').time())
+                pitch_end = datetime.combine(df_time.dt.date.values[0],
+                                                datetime.strptime(pitch_end, '%H:%M:%S').time())
+                tmp = {'walking':
+                    {'start': pitch_start,
+                        'end': pitch_end,
+                        }}
+                times.append(tmp)
+                next_calibration = input('Continue for more labeling? (y/n) ')
+                done = next_calibration != 'y'
+            self.times = times
+            self.yaml_times()
+        else:
+            with open(os.path.join(self.folder,'walk_labels.yaml'), "r") as stream:
+                self.times = safe_load(stream)
+        for num in self.times:
             temp_array = self.odometry.labels.sel(time=slice(num['walking']['start'],num['walking']['end']))
             temp_arr_start = self.odometry.labels.where(self.odometry.time == temp_array.time[0])
             temp_arr_end = self.odometry.labels.where(self.odometry.time == temp_array.time[-1])
@@ -90,10 +167,10 @@ class WalkPredictor():
     def split(self):
         #Drop unnecessary features
         self.odometry = self.odometry.drop_vars('confidence')
-        variables = ['position','linear_velocity','angular_velocity',
+        self.variables = ['position','linear_velocity','angular_velocity',
                      'linear_acceleration','angular_acceleration','orientation']
         self.y = self.odometry.labels
-        self.x = self.odometry[variables]
+        self.x = self.odometry[self.variables]
         self.x = DataFrame(list(zip(self.x.position[:,0].values,self.x.position[:,1].values,self.x.position[:,2].values,
                                 self.x.linear_velocity[:,0].values,self.x.linear_velocity[:,1].values,self.x.linear_velocity[:,2].values,
                                 self.x.angular_velocity[:,0].values,self.x.angular_velocity[:,1].values,self.x.angular_velocity[:,2].values,
@@ -112,11 +189,11 @@ class WalkPredictor():
         self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(self.x,self.y, train_size=0.8)
     def pre_process(self):
         # #Scale data 
-        scaler = StandardScaler()
-        scaled_data = scaler.fit(self.x_train).transform(self.x_train)
-        self.x_train = DataFrame(scaled_data, columns = self.x_train.columns)
-        scaled_data_test = scaler.fit(self.x_test).transform(self.x_test)
-        self.x_test = DataFrame(scaled_data_test, columns = self.x_test.columns)
+        # scaler = StandardScaler()
+        # scaled_data = scaler.fit(self.x_train).transform(self.x_train)
+        # self.x_train = DataFrame(scaled_data, columns = self.x_train.columns)
+        # scaled_data_test = scaler.fit(self.x_test).transform(self.x_test)
+        # self.x_test = DataFrame(scaled_data_test, columns = self.x_test.columns)
         #Log Transform - Should I transform or scale first?
         # for col_name in self.x_train.columns:
         #     self.x_train[col_name] = np.log10(self.x_train[col_name])
@@ -158,17 +235,17 @@ class WalkPredictor():
         #check the base case
         print('training base casee for all models')
         kneighbor = KNeighborsClassifier().fit(self.x_train,self.y_train)
-        log_regress = LogisticRegression().fit(self.x_train,self.y_train)
+        # log_regress = LogisticRegression().fit(self.x_train,self.y_train)
         grad_class = GradientBoostingClassifier().fit(self.x_train,self.y_train)
         mlpClass = MLPClassifier().fit(self.x_train,self.y_train)
         randFor = RandomForestClassifier().fit(self.x_train,self.y_train)
         print('kneighbor acc: ',accuracy_score(self.y_test, kneighbor.predict(self.x_test)))
-        print('logisticRegression acc: ',accuracy_score(self.y_test, log_regress.predict(self.x_test)))
+        # print('logisticRegression acc: ',accuracy_score(self.y_test, log_regress.predict(self.x_test)))
         print('gradientBoostingClassifier acc: ',accuracy_score(self.y_test, grad_class.predict(self.x_test)))
         print('mlpClassifier acc: ',accuracy_score(self.y_test, mlpClass.predict(self.x_test)))
         print('randomForestClassifier acc: ',accuracy_score(self.y_test, randFor.predict(self.x_test)))
         dict_models = {'kneighbor': accuracy_score(self.y_test, kneighbor.predict(self.x_test)),
-                       'logisticRegression': accuracy_score(self.y_test, log_regress.predict(self.x_test)),
+                       # 'logisticRegression': accuracy_score(self.y_test, log_regress.predict(self.x_test)),
                        'gradientBoostingClassifier': accuracy_score(self.y_test, grad_class.predict(self.x_test)),
                        'mlpClassifier': accuracy_score(self.y_test, mlpClass.predict(self.x_test)),
                        'randomForestClassifier': accuracy_score(self.y_test, randFor.predict(self.x_test)),
@@ -177,8 +254,8 @@ class WalkPredictor():
         print(f'Model with the highest accuracy: {models_highest}')
         if models_highest == 'kneighbor':
             self.model = kneighbor
-        elif models_highest == 'logisticRegression':
-            self.model = log_regress
+        # elif models_highest == 'logisticRegression':
+        #     self.model = log_regress
         elif models_highest == 'gradientBoostingClassifier':
             self.model = grad_class
         elif models_highest == 'mlpClassifier':
@@ -206,22 +283,56 @@ class WalkPredictor():
         """
         Predict any input data.
         possibly graph the data as well to see what is labeled correctly
+        TODO: in the future make it so it can predict inidividual datum or array-like
         """
-        temp_df = self.x.drop(columns=self.drop_cols)
-        temp_df['labels'] = np.zeros(len(temp_df))
-        for i in range(len(temp_df)):
-            temp_df['labels'].iloc[i] = self.model.predict(temp_df.iloc[i].to_numpy().reshape(-1, 1))
-            if temp_df['labels'].iloc[i] == 0:
-                plt.plot(temp_df.index[i],temp_df['angular_velocity_x'].iloc[i],linestyle='--', marker='o', color='r')
-            elif temp_df['labels'].iloc[i] == 1:
-                plt.plot(temp_df.index[i],temp_df['angular_velocity_x'].iloc[i],linestyle='--', marker='o', color='g')
+        xarr = test_data('/media/brianszekely/TOSHIBA EXT/UNR/2021_07_13_16_25_41/')
+        df_x = create_df(xarr)
+        temp_df = df_x.drop(columns=self.drop_cols)
+        temp_df['labels'] = self.model.predict(temp_df)
+        #TODO: fix this garbage
+        print('Predict and create plot - test data, not validation data')
+        walk_seg = temp_df.index[temp_df['labels'] == 1]
+        no_walk_seg = temp_df.index[temp_df['labels'] == 0]
+        plt.figure()
+        plt.scatter(temp_df.index[walk_seg],
+                    temp_df['angular_velocity_x'].iloc[walk_seg], c = 'green', s = 3,
+                    linewidth = 1)
+        plt.scatter(temp_df.index[no_walk_seg],
+                    temp_df['angular_velocity_x'].iloc[no_walk_seg], c = 'red', s = 3,
+                    linewidth = 1)
+        plt.legend(['Walk', 'Not-Walk'])
         plt.show()
+        plt.close()
+        
+        # for i in tqdm(range(len(temp_df))):
+        #     if temp_df['labels'].iloc[i] == 0:
+        #         color = 'red' 
+        #         # plt.plot(temp_df.index[i],temp_df['angular_velocity_x'].iloc[i],linestyle='--', marker='o', color='r')
+        #     elif temp_df['labels'].iloc[i] == 1:
+        #         color = 'green'
+        #     plt.scatter(temp_df.index[i],
+        #                 temp_df['angular_velocity_x'].iloc[i], c = color, s = 3,
+        #                 linewidth = 1)
+        
+        # temp_df = self.x.drop(columns=self.drop_cols)
+        # temp_df = self.temp_df.drop(columns=['labels'])
+        # temp_df['labels'] = np.zeros(len(temp_df))
+        # for i in range(len(temp_df)):
+        #     arr_temp = temp_df.iloc[i].to_numpy()
+        #     save_arr = arr_temp.reshape(-1,1)
+        #     print(save_arr)
+        #     temp_df['labels'].iloc[i] = self.model.predict(save_arr)
+        #     if temp_df['labels'].iloc[i] == 0:
+        #         plt.plot(temp_df.index[i],temp_df['angular_velocity_x'].iloc[i],linestyle='--', marker='o', color='r')
+        #     elif temp_df['labels'].iloc[i] == 1:
+        #         plt.plot(temp_df.index[i],temp_df['angular_velocity_x'].iloc[i],linestyle='--', marker='o', color='g')
+        # plt.show()
     def feature_importances(self,model):
         pass
-
 def main():
     walk = WalkPredictor()
     walk.readin()
+    walk.filter_data()
     walk.encode_binary()
     walk.split()
     walk.pre_process()
